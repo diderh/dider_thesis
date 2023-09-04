@@ -1,0 +1,1371 @@
+---
+title: "biomonitoR"
+author: "DIDER"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '2'
+    number_sections: true
+    fig_width: 7
+    fig_height: 6
+    fig_caption: true
+    df_print: kable
+    highlight: tango
+    citation_package: biblatex
+    latex_engine: xelatex
+    keep_tex: true
+  html_document:
+    number_section: yes
+    highlight: kate
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 2
+    fig_width: 9
+    fig_height: 7
+    fig_caption: yes
+    number_sections: yes
+    df_print: kable
+    always_allow_html: true
+bibliography: citations.bib
+link-citation: yes
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(biomonitoR)
+library(vegan)
+library(ade4)
+library(dplyr)
+library(StatMatch)
+library(ggplot2)
+library(tidyr)
+library(tidyverse)
+```
+
+# Data inspection
+
+```{r}
+benthos_data <- read.csv("Benthos_final_updatedfile.csv")
+summary(benthos_data)
+```
+
+```{r}
+colnames(benthos_data)
+```
+
+```{r}
+# Restructure the data table by transforming it into a longer format, where each row corresponds to a specific Taxa name.
+
+longer_format_taxa <- benthos_data %>%
+  pivot_longer(cols = starts_with(c("Gammarus", "Chironomidae", "Baetidae", "Ephemerellidae", "Heptageniidae", "Leptophlebiidae", "Caenidae", "Hydropsychidae", "Rhyacophilidae", "Limnephilidae", "Philopotamidae", "Polycentropodidae", "Simuliidae", "Tipulidae", "Limoniidae", "Dixidae", "Culicidae", "Ceratopogonidae", "Psychodidae", "Empididae", "Ephydridae", "Pediciidae", "Elmis", "Limnius", "Hydraenidae", "Chrysomelidae", "Oligochaeta")),
+               names_to = "Taxa",
+               values_to = "Abundance")
+glimpse(longer_format_taxa)
+```
+
+```{r}
+# Rename the factors for each factor of Time Point and Position variables
+longer_format_taxa$Time.point <- ifelse(longer_format_taxa$Time.point == "week -1", "Week-1",
+                         ifelse(longer_format_taxa$Time.point == "week_6", "Week_6", NA))
+longer_format_taxa$Position <- ifelse(longer_format_taxa$Position == "downstream", "Downstream",
+                         ifelse(longer_format_taxa$Position == "upstream", "Upstream", NA))
+```
+
+
+## Primary data visualization
+
+```{r}
+ggplot(data = longer_format_taxa, aes(x = Treatment, y = Abundance, group = Time.point)) +
+    geom_line()+
+	geom_smooth(method = "glm", method.args = c("poisson"), se = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(plotly)
+library(ggplot2)
+
+longer_format_taxa %>%
+  plot_ly(x = ~Treatment, y = ~log(Abundance) + 1, color = ~Time.point,
+          boxpoints = "all", boxmean = TRUE, notched = FALSE, showlegend = TRUE,
+          marker = list(color = 'rgb(7,40)'),
+              line = list(color = 'rgb(7,40)')) %>%
+  add_boxplot() %>%
+  layout(boxmode = "group",
+         xaxis = list(title = "Treatments", zeroline = FALSE, showgrid = FALSE),
+         yaxis = list(title = "Total abundance for all species (log-transformed)", zeroline = FALSE),
+         title = "Macroinvertebrate abundance before-after treatment (log-transformed)")
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE}
+longer_format_taxa %>%
+  plot_ly(x = ~Treatment, y = ~log(Abundance) + 1, color = ~Position,
+          boxpoints = "all", boxmean = TRUE, notched = FALSE, showlegend = TRUE,
+          marker = list(color = 'rgb(7,40)'),
+              line = list(color = 'rgb(7,40)')) %>%
+  add_boxplot() %>%
+  layout(boxmode = "group",
+         xaxis = list(title = "Treatments", zeroline = FALSE, showgrid = FALSE),
+         yaxis = list(title = "Total abundance for all species (log-transformed)", zeroline = FALSE),
+         title = "Macroinvertebrate abundance in upstream and downstream (log-transformed)")
+
+```
+
+
+```{r}
+library(ggthemes)
+
+longer_format_taxa$Abun_sd = sd(longer_format_taxa$Abundance)
+
+g1<- ggplot(longer_format_taxa, aes(fill = Time.point, y = Abundance, x = Treatment)) +
+  geom_bar(position = "dodge", stat = "identity")  +
+ scale_fill_grey(start = 0.75, end = 0.25)  + 
+  theme_minimal() +
+  labs(title = "Species abundance comparison in between before and after treatment",
+       x = "Treatment",
+       y = "Species Abundance")
+g1 + theme(legend.position="top")
+```
+
+
+```{r}
+g2<- ggplot(longer_format_taxa, aes(fill = Position, y = Abundance, x = Treatment)) +
+  geom_bar(position = "dodge", stat = "identity")  +
+ scale_fill_grey(start = 0.75, end = 0.25)  + 
+  theme_minimal() +
+  labs(title = "Species abundance comparison in between upstream and downstream",
+       x = "Treatment",
+       y = "Species Abundance")
+g2 + theme(legend.position="top")
+```
+
+
+
+
+```{r}
+# Create a boxplot of treatment against abundance for before treatment
+p1 <- longer_format_taxa %>%
+   filter(Time.point == "Week-1") %>%
+   plot_ly(x = ~Treatment, y = ~log(Abundance) + 1, color = ~Treatment, boxpoints = "all", boxmean = TRUE, notched = FALSE, showlegend = FALSE) %>% 
+   add_boxplot() %>% 
+   layout(yaxis = list(title = "Abundance before treatment", zeroline = FALSE))
+ 
+
+# Create a boxplot of treatment against abundance for after treatment
+p2 <- longer_format_taxa %>%
+   filter(Time.point == "Week_6") %>%
+   plot_ly(x = ~Treatment, y = ~log(Abundance) + 1, color = ~Treatment, boxpoints = "all", boxmean = TRUE, notched = FALSE, showlegend = FALSE) %>% 
+   add_boxplot()%>% 
+   layout(yaxis = list(title = "Abundance after treatment", zeroline = FALSE))
+         
+# Create a facted scatterplot containing p1 and p2
+subplot(p1, p2, nrows = 2, shareX = TRUE, shareY = TRUE) %>%
+   layout(xaxis = list(title = "Treatments", zeroline = FALSE, showgrid = FALSE),
+         title = "Macroinvertebrate abundance (log-transformed) before-after treatment")
+```
+
+# Evaluating the effects of crayfish and ALAN on macroinvertebrates trait
+
+## Restructure our dataset on the basis of channel
+
+```{r}
+# Restructure the longer_format_taxa table by transforming it into a wider format, where each row corresponds to a specific treatment name.
+
+Final_data <- longer_format_taxa %>%
+ pivot_wider(names_from = Channel, values_from = Abundance)
+glimpse(Final_data)
+```
+
+```{r}
+# Omitting NA values in our dataset
+Final_data[is.na(Final_data)] <- 0
+Final_data[1:6, 1:6]
+```
+
+## Total abundance of each speciees in each channel
+
+```{r}
+# Calculating total abundance of each species for each channel 
+total_abundance_by_channel <- Final_data %>%
+  group_by(Taxa) %>%
+  transmute(Taxa, Treatment, Time.point, Position,
+    Channel_1 = sum(Channel1),
+    Channel_2 = sum(Channel2),
+    Channel_3 = sum(Channel3),
+    Channel_4 = sum(Channel4),
+    Channel_5 = sum(Channel5),
+    Channel_6 = sum(Channel6),
+    Channel_7 = sum(Channel7),
+    Channel_8 = sum(Channel8),
+    Channel_9 = sum(Channel9),
+    Channel_10 = sum(Channel10),
+    Channel_11 = sum(Channel11),
+    Channel_12 = sum(Channel12),
+    Channel_13 = sum(Channel13),
+    Channel_14 = sum(Channel14),
+    Channel_15 = sum(Channel15),
+    Channel_16 = sum(Channel16)
+  )
+total_abundance_by_channel[1:6, 1:6]
+```
+
+
+```{r}
+# Calculating row sums for each channel
+row_sums <- rowSums(total_abundance_by_channel[, c(5:20)])
+
+# Subset the dataset to remove rows with zero row sums
+Final_data_NZ <- total_abundance_by_channel[row_sums != 0, ]
+
+Final_data_NZ[1:6, 1:6]
+```
+
+```{r}
+datafortraitgen <- Final_data_NZ[, c(1, 5:20)]
+datafortraitgen[1:6, 1:6]
+```
+
+## Trait Analysis
+
+```{r}
+# Applying as_biomonitor function to our species abundance data,  
+# this function will merge our dataset with the reference taxonomic dataset.
+# I select group = "mi" which means that as_biomonitor function will merge our datset
+# with the reference macroinvertebrate taxonomic dataset
+
+biomonitor_data <- as_biomonitor(datafortraitgen, group = "mi", traceB = TRUE)
+glimpse(biomonitor_data)
+```
+
+### Summary plot of macroinvertebrate community
+
+**Pie-chart-1: Overall structure of macroinvertebrate community. Abundance data are reported at Family level.** 
+
+```{r}
+plot(biomonitor_data, parent = "Order", child = "Family")
+```
+
+
+**Pie-chart-2: Species abundance (log transformed) distribution of macroinvertebrate community. Abundance data are reported at Family level.**
+
+```{r}
+plot(biomonitor_data, parent = "Order", child = "Family", type = "abundance", trans = log1p)
+```
+
+**Pie-chart-3: Frequency plot (the number of samples in which a taxon have been found over the total number of samples) for macroinvertebrate community**
+
+```{r}
+plot(biomonitor_data, parent = "Order", child = "Family", type = "frequency")
+```
+
+### Aggregate Taxa
+
+```{r}
+taxa_aggregation <- aggregate_taxa(biomonitor_data)
+#glimpse(taxa_aggregation)
+```
+
+**Structure of macroinvertebrate community. For each observation (n = 64) the relative abundance is reported. Observations were ordered using an agglomerative hierarchical clustering with the Ward.D2 method to enhance pattern detection based on community similarity.**
+
+```{r}
+plot(taxa_aggregation)
+```
+
+### Indicator taxa analysis
+
+```{r}
+cluster <- as.data.frame(names(datafortraitgen[-1]))
+cluster
+cluster$cluster <- c("crayfish + ALAN","crayfish", "ALAN" ,"control" , "crayfish" , "ALAN" , 
+                     "control",  "crayfish + ALAN" , "ALAN" , "control", "crayfish + ALAN" ,"crayfish", 
+                     "control" ,"crayfish + ALAN" ,"crayfish", "ALAN")
+
+names(cluster) <- c("sites","clusters")
+```
+
+**Fig-1: Indicator taxa for macroinvertebrate community in each treatment sites (Control, crayfish, ALAN, ALAN+Crayfish).**
+
+
+```{r}
+plot_indicator_taxa(taxa_aggregation, cluster=cluster,thresh = 16, opacity = 0.1,parent = "Order")
+```
+
+
+```{r include=FALSE}
+# Get taxonomic information from GBIF.
+#tax_inf <- get_gbif_taxa_tree(datafortraitgen$Taxa)
+```
+
+```{r}
+# Create the taxonomic tree.
+#tax_tree <- ref_from_tree(tax_inf$taxonomy) 
+#tax_tree
+```
+
+### Assign Trait
+
+```{r}
+traitscailing_data <- assign_traits( taxa_aggregation, tax_lev = "Family" )
+glimpse(traitscailing_data)
+```
+
+
+
+```{r}
+traitscailing_data_cwm <- traitscailing_data[, c(1, 65:85, 93:101, 108:118)]
+glimpse(traitscailing_data_cwm) # Taking original trait data from Tachet dataset
+```
+
+```{r}
+traitscailing_data_av <- average_traits(traitscailing_data)
+glimpse(traitscailing_data_av)
+```
+
+```{r}
+# Selecting our desire trait
+trait_av <- traitscailing_data_av[, c(1, 61:81, 89:97, 104:114)]
+# Ommittig NA values in our dataset
+trait_av[is.na(trait_av)] <- 0
+glimpse(trait_av)
+```
+
+## Calculating functioanl indices
+
+```{r}
+library(ade4)
+```
+
+```{r}
+Trait_category_nr <- c(8, 8, 5, 5, 4, 3, 8)
+```
+
+### Functional dispersion
+
+```{r}
+Functional_dispersion <- f_disp(taxa_aggregation, trait_db = trait_av,tax_lev = "Taxa", nbdim = 2, type = "F", col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_dispersion <- as.data.frame(Functional_dispersion)
+Functional_dispersion$Channel <- colnames(datafortraitgen[-1])
+glimpse(Functional_dispersion)
+```
+
+### Functional diversity
+
+```{r}
+Functional_diversity <- f_divs(taxa_aggregation, trait_db = trait_av,tax_lev = "Taxa", type = "F", col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_diversity <- as.data.frame(Functional_diversity)
+Functional_diversity$Channel <- colnames(datafortraitgen[-1])
+glimpse(Functional_diversity)
+```
+
+### Functional redundancy
+
+```{r}
+Functional_redundancy <- f_red(taxa_aggregation, trait_db = trait_av,tax_lev = "Taxa", type = "F", col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_redundancy <- as.data.frame(Functional_redundancy)
+Functional_redundancy$Channel <- colnames(datafortraitgen[-1])
+glimpse(Functional_redundancy)
+```
+
+### Functional evenness
+
+```{r}
+Functional_evenness <- f_eve(taxa_aggregation, trait_db = trait_av,tax_lev = "Taxa", type = "F", nbdim = 2, col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_evenness <- as.data.frame(Functional_evenness)
+Functional_evenness$Channel <- colnames(datafortraitgen[-1])
+glimpse(Functional_evenness)
+```
+
+### Functional richness
+
+```{r}
+Functional_richness <- f_rich(taxa_aggregation, trait_db = trait_av,tax_lev = "Taxa", type = "F", nbdim = 2, col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_richness <- as.data.frame(Functional_richness)
+Functional_richness$Channel <- colnames(datafortraitgen[-1])
+glimpse(Functional_richness)
+```
+
+## Community-Weighted Mean values of traits
+
+```{r}
+CWM <- cwm(taxa_aggregation, trait_db = traitscailing_data_cwm, tax_lev = "Taxa", trans = log1p, traceB = FALSE)
+CWM <- as.data.frame(CWM)
+CWM$Channel <- colnames(datafortraitgen[-1])
+glimpse(CWM)
+```
+
+```{r}
+longer_format_taxa$Channel <- factor(longer_format_taxa$Channel, 
+                            levels = c("Channel1", "Channel2", "Channel3", "Channel4",
+                                       "Channel5", "Channel6", "Channel7", "Channel8",
+                                       "Channel9", "Channel10", "Channel11", "Channel12",
+                                       "Channel13", "Channel14", "Channel15", "Channel16"),
+                            labels = c("Channel_1", "Channel_2", "Channel_3", "Channel_4",
+                                       "Channel_5", "Channel_6", "Channel_7", "Channel_8",
+                                       "Channel_9", "Channel_10", "Channel_11", "Channel_12",
+                                       "Channel_13", "Channel_14", "Channel_15", "Channel_16"))
+glimpse(longer_format_taxa)
+```
+
+```{r}
+longer_format_taxa_av <- longer_format_taxa %>%
+  transmute(Taxa, Time.point, Treatment, Channel, Position, Abundance = sum(Abundance))
+glimpse(longer_format_taxa_av)
+```
+
+
+```{r}
+# Gather functional indices and CWM for each traits
+FI_CWM <- merge(longer_format_taxa_av, CWM, by = "Channel")
+FI_CWM <- merge(FI_CWM, Functional_richness, by = "Channel")
+FI_CWM <- merge(FI_CWM, Functional_dispersion, by = "Channel")
+FI_CWM <- merge(FI_CWM, Functional_evenness, by = "Channel")
+FI_CWM <- merge(FI_CWM, Functional_diversity, by = "Channel")
+FI_CWM <- merge(FI_CWM, Functional_redundancy, by = "Channel")
+```
+
+
+```{r}
+glimpse(FI_CWM)
+```
+
+
+```{r}
+FI_CWM$Time.point <- factor(FI_CWM$Time.point)
+FI_CWM$Treatment <- factor(FI_CWM$Treatment)
+FI_CWM$Position <- factor(FI_CWM$Position)
+str(FI_CWM)
+```
+
+
+```{r}
+FI_CWM_Trca <- FI_CWM %>%
+  pivot_longer(cols = c(DISPERSAL_1, DISPERSAL_2, DISPERSAL_3, DISPERSAL_4, FEEDING_1, FEEDING_2, FEEDING_3, FEEDING_4, FEEDING_5, FEEDING_6, FEEDING_7, FEEDING_8, LOCOMOTION_1, LOCOMOTION_2, LOCOMOTION_3, LOCOMOTION_4, LOCOMOTION_5, LOCOMOTION_6, LOCOMOTION_7, LOCOMOTION_8, RESISTANCE_1, RESISTANCE_2, RESISTANCE_3, RESISTANCE_4, RESISTANCE_5, RESPIRATION_1, RESPIRATION_2,RESPIRATION_3, RESPIRATION_4, RESPIRATION_5, VOLTINISM_1, VOLTINISM_2, VOLTINISM_3, REPRODUCTION_1, REPRODUCTION_2, REPRODUCTION_3, REPRODUCTION_4, REPRODUCTION_5, REPRODUCTION_6, REPRODUCTION_7, REPRODUCTION_8),
+               names_to = "Trait", values_to = "Trait_value")
+str(FI_CWM_Trca)
+```
+
+
+
+## Linear mixed effects modelling for feeding trait
+
+
+```{r}
+library(lme4)
+library(lmerTest)
+FEEDING_trait <- FI_CWM_Trca[grepl("^FEEDING_", FI_CWM_Trca$Trait), ]
+FEEDING_trait$Trait <- as.factor(FEEDING_trait$Trait)
+
+feeding.lmer <- lmer(Trait_value ~  Treatment + Time.point + Position + (1|Channel) + (1|Channel:Trait), FEEDING_trait, control = lmerControl(calc.derivs = FALSE))
+summary(feeding.lmer)
+```
+
+### Residual vs fitted value
+
+```{r}
+plot(feeding.lmer, main = "Residuals vs. Fitted Plot for Mixed Effects Model")
+```
+
+### Q-Q plot
+
+```{r}
+qqnorm(resid(feeding.lmer))
+qqline(resid(feeding.lmer)) 
+```
+
+### Plotting model predictions
+
+```{r warning=FALSE}
+library(ggeffects)
+
+# Extract the prediction data 
+pred.mm <- ggpredict(feeding.lmer, terms = c("Treatment"))  
+pred.mm
+# Plot the predictions 
+
+(ggplot(pred.mm) + 
+   geom_line(aes(x = x, y = predicted)) +          # slope
+   geom_ribbon(aes(x = x, ymin = predicted - std.error, ymax = predicted + std.error), 
+               fill = "lightgrey", alpha = 0.5) +  # error band
+   geom_point(data = FEEDING_trait,position = position_jitterdodge(jitter.width = 0.3, dodge.width = 0.3), # adding the raw data (scaled values)
+              aes(x = Treatment, y = Trait_value, colour = Trait)) + 
+   labs(x = "Treatment", y = "Trait value", 
+        title = "Trait value across different treatment (Predicted)") + 
+   theme_minimal()
+)
+```
+
+
+```{r}
+ggpredict(feeding.lmer, terms = c("Channel", "Trait"), type = "re") %>% 
+   plot() +
+   labs(x = "Channel", y = "Trait value", title = "Trait value across different channel") + 
+   theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r message=FALSE, warning=FALSE}
+library(broom.mixed)
+# Extract coefficents
+feeding.lmer_coef <-
+    tidy(feeding.lmer, conf.int = TRUE)
+
+# Print coefficents
+print(feeding.lmer_coef)
+```
+
+### Plot of the effect size
+
+```{r}
+# Plot results
+feeding.lmer_coef %>%
+    filter(effect == "fixed" & term != "(Intercept)") %>%
+    ggplot(., aes(x = term, y = estimate,
+                  ymin = conf.low, ymax = conf.high)) +
+    geom_hline(yintercept = 0, color = 'red') + 
+    geom_point() +
+    geom_linerange() +
+    coord_flip() +
+    theme_bw() +
+    ylab("Coefficient estimate and 95% CI") +
+    xlab("Regression coefficient")
+```
+
+```{r}
+sjPlot::plot_model(feeding.lmer, 
+                   axis.labels=c("Upstream", "After Treatment (Week6)","Crayfish + ALAN", "Crayfish", "Control"),
+                   show.values=TRUE, show.p=TRUE) +
+  ggtitle("Effects of ALAN & crayfish on feeding trait of macroinvertebrate") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  theme_bw()
+```
+```{r}
+library(ggpubr)
+ggline(FEEDING_trait, x ="Treatment", y = "Trait_value",
+       add = c("mean_se", "jitter"),
+       order = c("control", "crayfish", "ALAN", "crayfish + ALAN"),
+       error.plot = "errorbar",
+       ylab = "Feeding trait", xlab = "Treatment", title = "Mean plot for the effects of ALAN & crayfish on feeding trait")
+```
+
+`
+```{r}
+# Add the predictions to the original data
+FEEDING_trait_subset <-
+    FEEDING_trait %>%
+    mutate(lmer_predict = predict(feeding.lmer))
+
+# Plot the predicted values
+ggplot(FEEDING_trait_subset,
+       aes(x = Abundance, y = Trait_value, color = Trait)) +
+  facet_wrap(Time.point~Treatment, nrow=2) + 
+    geom_point() +
+    geom_line(aes(x = Abundance, y = lmer_predict)) +
+    xlab("Abundance") +
+    ylab("Predicted trait value") +
+    theme_bw()
+```
+
+```{r}
+# Plot the predicted values
+ggplot(FEEDING_trait_subset,
+       aes(x = Abundance, y = Trait_value, color = Trait)) +
+  facet_wrap(Position~Treatment, nrow=2) + 
+    geom_point() +
+    geom_line(aes(x = Abundance, y = lmer_predict)) +
+    xlab("Abundance") +
+    ylab("Predicted trait value") +
+    theme_bw()
+```
+
+### Output of model result
+
+```{r}
+sjPlot:: tab_model(feeding.lmer, show.re.var= TRUE, 
+                  pred.labels =c("(Intercept)", "Control", "Crayfish", "Crayfish + ALAN", "After Treatment", "Upstream"),
+                  dv.labels= "Effect of ALAN & crayfish on feeding trait of macroinvertebrate")
+```
+
+```{r}
+p1 <- FEEDING_trait_subset %>%                      
+  ggplot(aes(x = lmer_predict)) + 
+  geom_histogram(bins = 15) +
+  facet_wrap(~Treatment)+
+  theme_classic()
+
+p2 <- FEEDING_trait_subset %>%                      
+  ggplot(aes(sample = lmer_predict)) +          
+  geom_qq() + 
+  geom_qq_line(colour = "blue") + 
+  facet_wrap(~Treatment)+
+  theme_classic()
+
+p3 <- FEEDING_trait_subset %>%                     
+  ggplot(aes(x = Treatment,             
+             y = lmer_predict)) +               
+  geom_boxplot(aes(fill = Treatment)) + 
+  geom_jitter(alpha = 0.4) +               
+  theme(legend.position = "none")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+library(patchwork)                         
+p1 / p2 | p3
+```
+
+### Non-parmetric test
+
+```{r}
+FEEDING_trait_subset%>%
+  kruskal.test(lmer_predict~Treatment, data = .) %>% 
+  tidy()
+```
+
+```{r}
+library(ggstatsplot)
+
+# plot with statistical results
+ggwithinstats( 
+  data = FEEDING_trait_subset,
+  x = Treatment,
+  y = lmer_predict,
+  type = "nonparametric",
+  pairwise.display = "significant",
+  centrality.plotting = TRUE,
+  ylab = "Trait value",
+ title = "Non-parametric test for treatmentwise comparison (Feeding trait)"
+)
+```
+
+
+
+
+
+## Linear mixed effects modelling for Shredder
+
+
+```{r message=FALSE, warning=FALSE}
+feeding.shredder <- lmer(FEEDING_3 ~  Treatment + Time.point + Position + (1|Channel), FI_CWM, control = lmerControl(calc.derivs = FALSE))
+summary(feeding.shredder)
+```
+### Model output
+
+```{r}
+sjPlot:: tab_model(feeding.shredder, show.re.var= TRUE, 
+                  pred.labels =c("(Intercept)", "Control", "Crayfish", "Crayfish + ALAN", "After Treatment", "Upstream"),
+                  dv.labels= "Effect of ALAN & crayfish on shredder")
+```
+
+
+
+### Residual vs fitted value
+
+```{r}
+plot(feeding.shredder, main = "Residuals vs. Fitted Plot for Mixed Effects Model")
+```
+
+### Q-Q plot
+
+```{r}
+qqnorm(resid(feeding.shredder))
+qqline(resid(feeding.shredder)) 
+```
+
+### Plot of the effect size
+
+```{r}
+library(ggplot2)
+sjPlot::plot_model(feeding.shredder, 
+                   axis.labels=c("Upstream", "After Treatment (Week6)","Crayfish + ALAN", "Crayfish", "Control"),
+                   show.values=TRUE, show.p=TRUE) +
+  ggtitle("Effects of ALAN & crayfish on shredder") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  theme_bw()
+```
+
+### Plot the results
+
+```{r}
+FI_CWM$shredder.predict<-predict(feeding.shredder)
+Predicted.plot <-ggplot()+
+  facet_grid(Time.point ~ Position, labeller=label_both)+
+  geom_line(data = FI_CWM, aes(x = Treatment, y =shredder.predict))+
+  geom_point(data = FI_CWM, aes(x = Treatment, y =FEEDING_3, group=Time.point,colour = Treatment), size=3)+ 
+  xlab("Treatment")+ylab("Shredder")+
+  ggtitle("Effects of ALAN & crayfish on shredder") +
+  theme_bw()+
+  theme(panel.grid.major.x  = element_blank(),
+  panel.grid.minor.x = element_blank(), legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+Predicted.plot
+```
+
+```{r}
+q1 <- FI_CWM %>%                      
+  ggplot(aes(x = shredder.predict)) + 
+  geom_histogram(bins = 15) +
+  facet_wrap(~Treatment)+
+  theme_classic()
+
+q2 <- FI_CWM %>%                      
+  ggplot(aes(sample = shredder.predict)) +          
+  geom_qq() + 
+  geom_qq_line(colour = "blue") + 
+  facet_wrap(~Treatment)+
+  theme_classic()
+
+q3 <- FI_CWM %>%                     
+  ggplot(aes(x = Treatment,             
+             y = shredder.predict)) +               
+  geom_boxplot(aes(fill = Treatment)) + 
+  geom_jitter(alpha = 0.4) +               
+  theme(legend.position = "none")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+library(patchwork)                         
+q1 / q2 | q3
+```
+
+### Non-parametric test
+
+```{r}
+# plot with statistical results
+ggwithinstats( 
+  data = FI_CWM,
+  x = Treatment,
+  y = shredder.predict,
+  type = "nonparametric",
+  pairwise.display = "significant",
+  centrality.plotting = TRUE,
+  ylab = "Shredder",
+ title = "Non-parametric test for treatmentwise comparison (Shredder)"
+)
+```
+
+
+
+```{r}
+library(ggpubr)
+ggline(FI_CWM, x ="Treatment", y = "FEEDING_3",
+       add = c("mean_se", "jitter"),
+       order = c("control", "crayfish", "ALAN", "crayfish + ALAN"),
+       error.plot = "errorbar",
+       ylab = "Shredder", xlab = "Treatment", title = "Mean plot for the effects of ALAN & crayfish on shredder")
+```
+
+
+
+
+## Linear mixed effects modelling for functional richness
+
+
+```{r message=FALSE, warning=FALSE}
+fr.lmer <- lmer(Functional_richness ~  Treatment + Time.point + Position + (1|Channel), FI_CWM, control = lmerControl(calc.derivs = FALSE))
+summary(fr.lmer)
+```
+
+### Model output
+
+```{r}
+sjPlot:: tab_model(fr.lmer, show.re.var= TRUE, 
+                  pred.labels =c("(Intercept)", "Control", "Crayfish", "Crayfish + ALAN", "After Treatment", "Upstream"),
+                  dv.labels= "Effect of ALAN & crayfish on functional richness")
+```
+
+
+
+### Residual vs fitted value
+
+```{r}
+plot(fr.lmer, main = "Residuals vs. Fitted Plot for Mixed Effects Model")
+```
+
+### Q-Q plot
+
+```{r}
+qqnorm(resid(fr.lmer))
+qqline(resid(fr.lmer)) 
+```
+
+```{r}
+library(ggplot2)
+sjPlot::plot_model(fr.lmer, 
+                   axis.labels=c("Upstream", "After Treatment (Week6)","Crayfish + ALAN", "Crayfish", "Control"),
+                   show.values=TRUE, show.p=TRUE) +
+  ggtitle("Effects of ALAN & crayfish on functional richness") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  theme_bw()
+```
+
+### Plot the results
+
+```{r}
+library(sjPlot)
+FI_CWM$fr.predict<-predict(fr.lmer)
+ggplot()+
+  facet_grid(Time.point ~ Position, labeller=label_both)+
+  geom_line(data = FI_CWM, aes(x = Treatment, y =fr.predict))+
+  geom_point(data = FI_CWM, aes(x = Treatment, y =Functional_richness, group=Time.point,colour = Time.point), size=3)+ 
+  xlab("Treatment")+ylab("Functional richness")+
+  ggtitle("Effects of ALAN & crayfish on functional richness") +
+  theme_bw()+
+  theme(panel.grid.major.x  = element_blank(),
+  panel.grid.minor.x = element_blank(), legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+r1 <- FI_CWM %>%                      
+  ggplot(aes(x = fr.predict)) + 
+  geom_histogram(bins = 15) +
+  facet_wrap(~Treatment)+
+  theme_classic()
+
+r2 <- FI_CWM %>%                      
+  ggplot(aes(sample = fr.predict)) +          
+  geom_qq() + 
+  geom_qq_line(colour = "blue") + 
+  facet_wrap(~Treatment)+
+  theme_classic()
+
+r3 <- FI_CWM %>%                     
+  ggplot(aes(x = Treatment,             
+             y = fr.predict)) +               
+  geom_boxplot(aes(fill = Treatment)) + 
+  geom_jitter(alpha = 0.4) +               
+  theme(legend.position = "none")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+library(patchwork)                         
+r1 / r2 | r3
+```
+
+### Non-parametric test
+
+```{r}
+# plot with statistical results
+ggwithinstats( 
+  data = FI_CWM,
+  x = Treatment,
+  y = fr.predict,
+  type = "nonparametric",
+  pairwise.display = "significant",
+  centrality.plotting = TRUE,
+  ylab = "Functional richness",
+ title = "Non-parametric test for treatmentwise comparison (Functional richness)"
+)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+library(ggpubr)
+ggline(FI_CWM, x ="Treatment", y = "Functional_richness",
+       add = c("mean_se", "jitter", error.plot = "pointrange"),
+       order = c("control", "crayfish", "ALAN", "crayfish + ALAN"),
+       error.plot = "errorbar",
+       ylab = "Functional richness", xlab = "Treatment", title = "Mean plot for the effects of ALAN & crayfish on functional richness")
+```
+
+
+
+
+# Evaluating before and after treatment effect on macroinvertebrates trait
+
+## Restructure our dataset on the basis of time point
+
+```{r}
+# Restructure the longer_format_taxa table by transforming it into a wider format, where each row corresponds to a specific time point.
+
+Final_data1 <- longer_format_taxa %>%
+ pivot_wider(names_from = Time.point, values_from = Abundance)
+glimpse(Final_data1)
+```
+
+```{r}
+# Omitting NA values in our dataset
+Final_data1[is.na(Final_data1)] <- 0
+Final_data1[1:6, 1:6]
+```
+
+```{r}
+library(dplyr)
+# Calculating total abundance of each species for each time point 
+total_abundance_by_timepoint <- Final_data1 %>%
+  group_by(Taxa) %>%
+  summarise(
+    Channel = first(Channel),
+    Treatment = first(Treatment),
+    Position = first(Position),
+    Before = sum(`Week-1`),
+    After = sum(Week_6)
+  )
+total_abundance_by_timepoint[1:6, 1:6]
+```
+
+
+```{r}
+# Calculating row sums for each time point
+row_sums1 <- rowSums(total_abundance_by_timepoint[, c(5:6)])
+
+# Subset the dataset to remove rows with zero row sums
+Final_data_NZ1 <- total_abundance_by_timepoint[row_sums1 != 0, ]
+
+Final_data_NZ1[1:6, 1:6]
+```
+
+```{r}
+datafortraitgen1 <- Final_data_NZ1[, c(1, 5, 6)]
+datafortraitgen1[1:6, 1:3]
+```
+
+
+
+## Trait Analysis
+
+```{r}
+# Applying as_biomonitor function to our species abundance data,  
+# this function will merge our dataset with the reference taxonomic dataset.
+# I select group = "mi" which means that as_biomonitor function will merge our datset
+# with the reference macroinvertebrate taxonomic dataset
+
+biomonitor_data1 <- as_biomonitor(datafortraitgen1, group = "mi", traceB = TRUE)
+glimpse(biomonitor_data1)
+```
+
+### Aggregate Taxa
+
+```{r}
+taxa_aggregation1 <- aggregate_taxa(biomonitor_data1)
+#glimpse(taxa_aggregation1)
+```
+
+**Figure 1: Structure of macroinvertebrate community. For each observation (n = 64) the relative abundance is reported. Observations were ordered using an agglomerative hierarchical clustering with the Ward.D2 method to enhance pattern detection based on community similarity.**
+
+```{r}
+plot(taxa_aggregation1)
+```
+
+
+## Assign Trait
+
+```{r}
+traitscailing_data1 <- assign_traits(taxa_aggregation1, tax_lev = "Family")
+glimpse(traitscailing_data1)
+```
+
+
+```{r}
+colnames(traitscailing_data1)
+```
+
+
+```{r}
+traitscailing_data_cwm1 <- traitscailing_data[, c(1, 65:85, 93:101, 108:118)]
+glimpse(traitscailing_data_cwm1)
+```
+
+```{r}
+traitscailing_data_av1 <- average_traits(traitscailing_data1)
+glimpse(traitscailing_data_av1)
+```
+
+```{r}
+# Selecting our desire trait
+trait_av1 <- traitscailing_data_av1[, c(1, 61:81, 89:97, 104:114)]
+# Ommittig NA values in our dataset
+trait_av1[is.na(trait_av1)] <- 0
+glimpse(trait_av1)
+```
+
+## Calculating functioanl indices
+
+```{r}
+library(ade4)
+```
+
+```{r}
+Trait_category_nr <- c(8, 8, 5, 5, 4, 3, 8)
+```
+
+### Functional dispersion
+
+```{r}
+Functional_dispersion1 <- f_disp(taxa_aggregation1, trait_db = trait_av1,tax_lev = "Taxa", nbdim = 2, type = "F", col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_dispersion1 <- as.data.frame(Functional_dispersion1)
+Functional_dispersion1$Time.point <- colnames(datafortraitgen1[-1])
+glimpse(Functional_dispersion1)
+```
+
+
+### Functional diversity
+
+```{r}
+Functional_diversity1 <- f_divs(taxa_aggregation1, trait_db = trait_av1,tax_lev = "Taxa", type = "F", col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_diversity1 <- as.data.frame(Functional_diversity1)
+Functional_diversity1$Time.point <- colnames(datafortraitgen1[-1])
+glimpse(Functional_diversity1)
+```
+
+### Functional redundancy
+
+```{r}
+Functional_redundancy1 <- f_red(taxa_aggregation1, trait_db = trait_av1,tax_lev = "Taxa", type = "F", col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_redundancy1 <- as.data.frame(Functional_redundancy1)
+Functional_redundancy1$Time.point <- colnames(datafortraitgen1[-1])
+glimpse(Functional_redundancy1)
+```
+
+### Functional evenness
+
+```{r}
+Functional_evenness1 <- f_eve(taxa_aggregation1, trait_db = trait_av1,tax_lev = "Taxa", type = "F", nbdim = 2, col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_evenness1 <- as.data.frame(Functional_evenness1)
+Functional_evenness1$Time.point <- colnames(datafortraitgen1[-1])
+glimpse(Functional_evenness1)
+```
+
+### Functional richness
+
+```{r}
+Functional_richness1 <- f_rich(taxa_aggregation1, trait_db = trait_av1,tax_lev = "Taxa", type = "F", nbdim = 2, col_blocks = Trait_category_nr, correction = "cailliez")
+Functional_richness1 <- as.data.frame(Functional_richness1)
+Functional_richness1$Time.point <- colnames(datafortraitgen1[-1])
+glimpse(Functional_richness1)
+```
+
+## Community-Weighted Mean values of traits
+
+```{r}
+CWM1 <- cwm(taxa_aggregation1, trait_db = traitscailing_data_cwm1, tax_lev = "Taxa", trans = log1p, traceB = FALSE)
+CWM1 <- as.data.frame(CWM1)
+CWM1$Time.point <- colnames(datafortraitgen1[-1])
+glimpse(CWM1)
+```
+
+
+
+```{r}
+longer_format_taxa$Time.point <- ifelse(longer_format_taxa$Time.point == "Week-1", "Before",
+                         ifelse(longer_format_taxa$Time.point == "Week_6", "After", NA))
+glimpse(longer_format_taxa)
+```
+
+```{r}
+longer_format_taxa_av1 <- longer_format_taxa %>%
+  group_by(Taxa, Time.point, Treatment, Channel, Position) %>%
+  summarise(
+    Abundance = sum(Abundance)
+    )
+glimpse(longer_format_taxa_av1)
+```
+
+
+```{r}
+# Gather functional indices and CWM for each traits
+FI_CWM1 <- merge(longer_format_taxa_av1, CWM1, by = "Time.point")
+FI_CWM1 <- merge(FI_CWM1, Functional_richness1, by = "Time.point")
+FI_CWM1 <- merge(FI_CWM1, Functional_dispersion1, by = "Time.point")
+FI_CWM1 <- merge(FI_CWM1, Functional_evenness1, by = "Time.point")
+FI_CWM1 <- merge(FI_CWM1, Functional_diversity1, by = "Time.point")
+FI_CWM1 <- merge(FI_CWM1, Functional_redundancy1, by = "Time.point")
+
+```
+
+
+```{r}
+glimpse(FI_CWM1)
+```
+
+
+```{r}
+FI_CWM1$Time.point <- factor(FI_CWM1$Time.point)
+FI_CWM1$Treatment <- factor(FI_CWM1$Treatment)
+FI_CWM1$Position <- factor(FI_CWM1$Position)
+str(FI_CWM1)
+```
+
+
+```{r}
+FI_CWM_Trca1 <- FI_CWM1 %>%
+  pivot_longer(cols = c(DISPERSAL_1, DISPERSAL_2, DISPERSAL_3, DISPERSAL_4, FEEDING_1, FEEDING_2, FEEDING_3, FEEDING_4, FEEDING_5, FEEDING_6, FEEDING_7, FEEDING_8, LOCOMOTION_1, LOCOMOTION_2, LOCOMOTION_3, LOCOMOTION_4, LOCOMOTION_5, LOCOMOTION_6, LOCOMOTION_7, LOCOMOTION_8, RESISTANCE_1, RESISTANCE_2, RESISTANCE_3, RESISTANCE_4, RESISTANCE_5, RESPIRATION_1, RESPIRATION_2,RESPIRATION_3, RESPIRATION_4, RESPIRATION_5, VOLTINISM_1, VOLTINISM_2, VOLTINISM_3, REPRODUCTION_1, REPRODUCTION_2, REPRODUCTION_3, REPRODUCTION_4, REPRODUCTION_5, REPRODUCTION_6, REPRODUCTION_7, REPRODUCTION_8),
+               names_to = "Trait", values_to = "Trait_value")
+str(FI_CWM_Trca1)
+```
+
+
+## Linear mixed effects modelling for Shredder (Before and after treatment effect)
+
+
+```{r}
+feeding.shredderbf <- lmer(FEEDING_3 ~  Treatment + Time.point + Position + (1|Channel), FI_CWM1, control = lmerControl(calc.derivs = FALSE))
+summary(feeding.shredderbf)
+```
+
+### Residual vs fitted value
+
+```{r}
+plot(feeding.shredderbf, main = "Residuals vs. Fitted Plot for Mixed Effects Model")
+```
+
+### Q-Q plot
+
+```{r}
+qqnorm(resid(feeding.shredderbf))
+qqline(resid(feeding.shredderbf)) 
+```
+
+### Plot of the effect size
+
+```{r}
+library(ggplot2)
+sjPlot::plot_model(feeding.shredderbf, 
+                   axis.labels=c("Upstream", "Before","Crayfish + ALAN", "Crayfish", "Control"),
+                   show.values=TRUE, show.p=TRUE) +
+  ggtitle("Effects of ALAN & crayfish on shredder (Before-after treatment effect)") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  theme_bw()
+```
+
+### Plot the results
+
+```{r}
+FI_CWM1$shredder.predictbf<-predict(feeding.shredderbf)
+ggplot()+
+  facet_grid(~ Position)+
+  geom_line(data = FI_CWM1, aes(x = Treatment, y =shredder.predictbf))+
+  geom_point(data = FI_CWM1, aes(x = Treatment, y =FEEDING_3, colour = Treatment), size=3)+ 
+  xlab("Treatment")+ylab("Shredder")+
+  ggtitle("Effects of ALAN & crayfish on shredder(Before-after treatment effect)") +
+  theme_bw()+
+  theme(panel.grid.major.x  = element_blank(),
+  panel.grid.minor.x = element_blank(), legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+
+# PCOA
+
+
+## Effect of crayfish and ALAN on macroinvertebrate community
+
+### Square root transformation of abundance data
+
+```{r}
+library(vegan)
+com.matrix <- benthos_data[,5:31]
+com.matrix <- sqrt(com.matrix)
+```
+
+### Bray-Curtis distances between samples
+
+```{r}
+com.dist<- vegdist(com.matrix, method='bray')
+```
+
+
+```{r}
+set.seed(98) 
+com.trea <-adonis2(com.dist~as.factor(benthos_data$Treatment), data=benthos_data, permutations=9999)
+com.trea
+```
+
+### Calculate multivariate dispersion
+
+```{r}
+dispersion<-betadisper(com.dist, group=benthos_data$Treatment)
+dispersion
+```
+
+```{r}
+permutest(dispersion)
+```
+
+```{r}
+anova(dispersion)
+```
+
+### Visualizing the multivariate homogeneity of group dispersion
+
+
+```{r}
+plot(dispersion, hull=TRUE, ellipse=TRUE) ##sd ellipse
+```
+
+```{r}
+# extract the centroids and the site points in multivariate space.  
+centroids<-data.frame(grps=rownames(dispersion$centroids),data.frame(dispersion$centroids))
+vectors<-data.frame(group=dispersion$group,data.frame(dispersion$vectors))
+
+# to create the lines from the centroids to each point.
+seg.data<-cbind(vectors[,1:3],centroids[rep(1:nrow(centroids),as.data.frame(table(vectors$group))$Freq),2:3])
+names(seg.data)<-c("group","v.PCoA1","v.PCoA2","PCoA1","PCoA2")
+
+# create the convex hulls of the outermost points.
+grp1.hull<-seg.data[seg.data$group=="control",1:4][chull(seg.data[seg.data$group=="control",2:3]),]
+grp2.hull<-seg.data[seg.data$group=="crayfish",1:4][chull(seg.data[seg.data$group=="crayfish",2:3]),]
+grp3.hull<-seg.data[seg.data$group=="ALAN",1:4][chull(seg.data[seg.data$group=="ALAN",2:3]),]
+grp4.hull<-seg.data[seg.data$group=="crayfish + ALAN",1:4][chull(seg.data[seg.data$group=="crayfish + ALAN",2:3]),]
+all.hull<-rbind(grp1.hull,grp2.hull,grp3.hull, grp4.hull)
+```
+
+
+```{r}
+library(gridExtra)
+library(grid)
+
+control <- seg.data%>%
+  filter(group == "control")
+
+panel.a<-ggplot() + 
+  geom_point(data=centroids[2,1:3], aes(x=PCoA1,y=PCoA2),size=4,colour="red",shape=16) + 
+  geom_point(data=control, aes(x=v.PCoA1,y=v.PCoA2),size=2,shape=16) +
+  labs(title="Control",x="",y="") +
+  coord_cartesian(xlim = c(-0.5,0.5), ylim = c(-0.3,0.3)) +
+  theme_classic() + 
+  theme(legend.position="none")
+
+crayfish <- seg.data%>%
+  filter(group == "crayfish")
+
+panel.b<-ggplot() + 
+  geom_point(data=centroids[3,1:3], aes(x=PCoA1,y=PCoA2),size=4,colour="green",shape=17) + 
+  geom_point(data=crayfish, aes(x=v.PCoA1,y=v.PCoA2),size=2,shape=17) +
+  labs(title="Crayfish",x="",y="") +
+  coord_cartesian(xlim = c(-0.5,0.5), ylim = c(-0.3,0.3)) +
+  theme_classic() + 
+  theme(legend.position="none")
+
+ALAN <- seg.data%>%
+  filter(group == "ALAN")
+
+panel.c<-ggplot() + 
+  geom_point(data=centroids[1,1:3], aes(x=PCoA1,y=PCoA2),size=4,colour="yellow",shape=15) + 
+  geom_point(data=ALAN, aes(x=v.PCoA1,y=v.PCoA2),size=2,shape=15) +
+  labs(title="ALAN",x="",y="") +
+  coord_cartesian(xlim = c(-0.5,0.5), ylim = c(-0.3,0.3)) +
+  theme_classic() + 
+  theme(legend.position="none")
+
+crayfish_ALAN <- seg.data%>%
+  filter(group == "crayfish + ALAN")
+
+panel.d<-ggplot() + 
+  geom_point(data=centroids[4,1:3], aes(x=PCoA1,y=PCoA2),size=4,colour="blue",shape=19) + 
+  geom_point(data=crayfish_ALAN, aes(x=v.PCoA1,y=v.PCoA2),size=2,shape=15) +
+  labs(title="Crayfish + ALAN",x="",y="") +
+  coord_cartesian(xlim = c(-0.5,0.5), ylim = c(-0.3,0.3)) +
+  theme_classic() + 
+  theme(legend.position="none")
+
+
+panel.e<-ggplot() + 
+  geom_point(data=centroids[,1:3], aes(x=PCoA1,y=PCoA2,shape=grps),size=4,colour="red") + 
+  geom_point(data=seg.data, aes(x=v.PCoA1,y=v.PCoA2,shape=group),size=2) +
+  labs(title="All Treatment",x="",y="") +
+  coord_cartesian(xlim = c(-0.5,0.5), ylim = c(-0.3,0.3)) +
+  theme_classic() + 
+  theme(legend.position="none")
+
+grid.arrange(panel.a,panel.b,panel.c,panel.d,panel.e, nrow=2)
+```
+
+# NMDS
+
+## Effect of crayfish and ALAN on macroinvertebrate community
+
+```{r}
+comMDS<-metaMDS(com.matrix, distance="bray", k=2, trymax=35, autotransform=TRUE) ##k is the number of dimensions
+```
+
+```{r}
+comMDS
+```
+
+```{r}
+stressplot(comMDS)
+```
+
+```{r}
+NMDS1<-comMDS$points[,1]
+NMDS2<-comMDS$points[,2]
+nmds.plot<- cbind(benthos_data,NMDS1, NMDS2)
+```
+
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(sjPlot)
+ggplot(nmds.plot, aes(NMDS1, NMDS2, color=Treatment))+
+  geom_point(position=position_jitter(.1), shape=3)+##separates overlapping points
+  stat_ellipse(type='t',size =1)+ ##draws 95% confidence interval ellipses
+  theme_blank()  +
+  geom_text(data=nmds.plot,aes(NMDS1, NMDS2, label=Channel), position=position_jitter(.35))+
+  annotate("text", x=min(NMDS1), y=min(NMDS2), label=paste('Stress =',round(comMDS$stress,2)))
+```
+
+
+```{r message=FALSE, warning=FALSE}
+fit<-envfit(comMDS, com.matrix)
+fit
+```
+```{r}
+library(ggplot2)
+library(ggvegan)
+```
+
+```{r}
+arrows<- data.frame(fit$vector$arrows,R=fit$vectors$r,P=fit$vectors$pvals)
+glimpse(arrows)
+```
+
+```{r}
+arrows$Species <- rownames(arrows) 
+```
+
+```{r}
+# filter P less than 0.05
+arrows.p<-arrows[arrows$P<0.05,]
+glimpse(arrows.p)
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data=nmds.plot, aes(NMDS1, NMDS2))+
+  geom_point(data=nmds.plot, aes(NMDS1, NMDS2, color=Treatment),position=position_jitter(.1))+##separates overlapping points
+  stat_ellipse(aes(fill=Treatment), alpha=.2,type='t',size =1, geom="polygon")+ ##changes shading on ellipses
+  theme_bw()+
+  geom_segment(data=arrows.p, aes(x=0, y=0, xend=NMDS1, yend=NMDS2, label=Species), arrow=arrow(length=unit(.2, "cm")*arrows.p$R))+
+  ggrepel::geom_text_repel(data = arrows.p, aes(x=NMDS1, y=NMDS2, label = Species), cex = 3, direction = "both", segment.size = 0.25)
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data=nmds.plot, aes(NMDS1, NMDS2))+
+  geom_point(data=nmds.plot, aes(NMDS1, NMDS2, color=Time.point),position=position_jitter(.1))+##separates overlapping points
+  stat_ellipse(aes(fill=Time.point), alpha=.2,type='t',size =1, geom="polygon")+ ##changes shading on ellipses
+  theme_classic2()+
+  geom_segment(data=arrows.p, aes(x=0, y=0, xend=NMDS1, yend=NMDS2, label=Species, lty=Species), arrow=arrow(length=unit(.2, "cm")*arrows.p$R))+
+  ggrepel::geom_text_repel(data = arrows.p, aes(x=NMDS1, y=NMDS2, label = Species), cex = 3, direction = "both", segment.size = 0.25)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data=nmds.plot, aes(NMDS1, NMDS2))+
+  geom_point(data=nmds.plot, aes(NMDS1, NMDS2, color=Position),position=position_jitter(.1))+ ##separates overlapping points
+  stat_ellipse(aes(fill=Position), alpha=.2,type='t',size =1, geom="polygon")+  ##changes shading on ellipses
+  theme_bw()+
+  geom_segment(data=arrows.p, aes(x=0, y=0, xend=NMDS1, yend=NMDS2, label=Species), arrow=arrow(length=unit(.2, "cm")*arrows.p$R))+##add arrows (scaled by R-squared value)
+  ggrepel::geom_text_repel(data = arrows.p, aes(x=NMDS1, y=NMDS2, label = Species), cex = 3, direction = "both", segment.size = 0.25)
+```
+
+
